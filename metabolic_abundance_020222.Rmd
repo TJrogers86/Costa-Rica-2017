@@ -1,0 +1,534 @@
+---
+title: "Costa Rica 2017 Data Analysis Report"
+author: "TJ"
+date: "01/27/2021"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+```{r, include=FALSE}
+##################################################
+## Load in packages, custom functions, and data ##
+##################################################
+source("R/cr_17_packages.R")  # Required Packages
+source("R/cr17_custom_functions_121121.R") # My Custom Functions
+source("R/cr17-data-import-modify_020222.R") # Importing and modifying data for analysis
+```
+
+# Table 1: Carbon info on sites
+```{r, echo=FALSE}
+geo_table <- geochem %>% subset(.,select = c(site_name, type, ph, temp, dic, doc, toc, dic_d13, doc_d13, toc_d13))
+#write_csv(geo_table, "output_data/tables/geo_table.csv")
+```
+# Figure 1: Heat Map and the Metabolic Prediction Plots
+
+## Dendrogram Plots
+  Before creating the Dendrograms Plots, I applied a lower bound cut off on MAG abundance. The cut off value ( < .03) is equal to the highest abundance of the lowest abundant MAG across all sites. In this way, we are able to filter out possible abundance values that are the result of random reads in the enviroment.
+  
+  The organization of the sites and mags based on the Sample Site and the MAG dendrograms will be used to inform the Abundance Heat Map and the subsequent Metabolic Prediction Maps.
+
+### Spearman Correlations Dendrogram of Sample sites
+  This first figure is the dendrogram based on spearman correlations between the sites. From this correlation, we can see that the Outer Forearc sites culster seperately from the Forearc and Arc sites clusters
+
+```{r, echo=FALSE}
+#################################################
+## Figure 1A: Dendrogram of sample sites/types ##
+#################################################
+cuttoff_site_dendro_plot <- ggdendrogram(data = cuttoff_site_hc, rotate = FALSE) # This creates the Dendrogram with site names
+cuttoff_site_dendro_plot_no_labels <- ggdendrogram(data = cuttoff_site_hc, rotate = FALSE, labels = FALSE) # This is the tree only, names not included
+cuttoff_site_dendro_plot
+# ggsave("output_data/figs/cuttoff_site_dendro_plot_010721.pdf", plot = last_plot())
+```
+
+### Spearman Correlations Dendrogram of Sample sites
+  This secound figure is the dendrogram based on spearman correlations between the MAGs.
+```{r, include=FALSE}
+#########################################
+## Figure 1B: Dendrogram of MAGs(bins) ##
+#########################################
+cut_off_correlation_dendro.plot <- ggdendrogram(data = cut_off_hclust, rotate = TRUE) #+ 
+  #theme(axis.title.y = element_blank(), axis.title.x = element_blank())
+ggsave("output_data/figs/cut_off_correlation_dendro_plot021122names.pdf", width=10, height=50, units = "in", limitsize = FALSE)
+```
+
+
+## Heat Map
+  To create the heat map, I have to apply the MAG and Site order determined from the above dendrograms. As can be seen, this causes distinct clustering of MAGs. Note: The heat map MAG order is a 180 degree order from the above MAG dendrogram.
+
+```{r, include=FALSE}
+###############################################################
+## Figure 1C: Heat Map Figure based on the above dendrograms ##
+###############################################################
+#Abundance heatmap without boarders
+cut_off_long_plot_no_boarders <- ggplot(data = cut_off_long, aes(x = site, y = bin.taxa.name, fill = log(abundance +.5))) + 
+  geom_tile(color = NA) + coord_equal(-1) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2.30, vjust = 1)) + 
+  scale_x_discrete(position = "top")  + theme(text = element_text(size=8)) +
+  scale_fill_gradientn(colours = c("black", "yellow", "red")) + theme(legend.position="right") + scale_y_discrete(position = "right")
+ggsave("output_data/figs/mag_map_no_boarder_030821.pdf", plot = last_plot(), width = 10, height = 60, units = "in", limitsize = FALSE)
+#ggsave(file="output_data/figs/mag_map_no_boarder_030821.svg", plot=cut_off_long_plot_no_boarders, width=10, height=60, limitsize = FALSE)
+
+```
+
+
+## Trophic Level map
+  Below, we see the trophic level (auto- vs hetero- troph) predictions of the MAGs. This is based on the precense or absence of ≥ 60% of a CFP and key enzymes for these CFPs
+  
+```{r, echo=FALSE fig.height=8, fig.width=500}
+############################################################################################################
+## Figure 1D: Trophic Level (Auto- vs Hetero- trophs) Figure. Organization based on the above dendrograms ##
+############################################################################################################
+#Now to create a plot of the auto vs hetero trophs
+trophic_plot <- ggplot(data = cfp_long, aes(x = trophic, y = bin.taxa.name, fill = presence)) + geom_tile(color = "gray") + coord_equal(-1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 4, vjust = 1)) + theme(text = element_text(size=8)) +
+  scale_fill_gradient(low = "white", high = "black") + scale_x_discrete(position = "bottom") + theme(legend.position = "none")
+#ggsave("output_data/figs/new_trophic_plot_012122.pdf", plot = last_plot(), width = 8, height = 500, units = "in", limitsize = FALSE)
+
+```
+  
+
+
+## Carbon Fixation Pathway predictions
+  Below, we see the CFP predictions of the MAGs. This is based on the precense or absence of ≥ 60% of a CFP and key enzymes for these CFPs.
+```{r, include=FALSE}
+###############################################################################################
+## Figure 1E: Carbon Fixation Prediction Figure. Organization based on the above dendrograms ##
+###############################################################################################
+cfp_col <- c("#0DCAF2", "#F2AF0D", "#5540BA")
+cfpplot <- cfpathways_long %>%
+  mutate(rescale = scales::rescale(cfp.color)) %>% group_by(carbon.fixation.pathway) %>%
+  ggplot(., aes(x = carbon.fixation.pathway, y = bin.taxa.name, fill = cfp_col)) + 
+  geom_tile(aes(alpha = rescale, fill = carbon.fixation.pathway), color = "gray") + scale_fill_manual(values = cfp_col) + coord_equal(-1) + theme_classic() +
+  theme(text = element_text(size=8)) + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  scale_alpha(range = c(0, 1)) + 
+  theme(legend.position = "none") +  scale_y_discrete(position = "right")
+
+# ggsave("output_data/figs/cfpplot_012122.pdf", plot = last_plot(), width = 10, height = 700, units = "in", limitsize = FALSE)
+```
+
+
+
+```{r, echo=FALSE, fig.height=42, fig.width=10}
+##################################################
+## Figure 1F: Electron Donor Predictions Figure ##
+##################################################
+don_col <- c("#808080", 
+             "#9EA70F", 
+             "#9d631c", 
+             '#0DCAF2')
+clean_metapath4$electron.donors <- 
+  factor(clean_metapath4$electron.donors,levels = c("Hydrogen Oxidation", "Sulfur Oxidation*", "Iron Oxidation",
+                                                    "Nitrogen Oxidation"))
+
+electron_donor_plot <- clean_metapath4 %>%
+  group_by(electron.donors) %>%
+  mutate(rescale = scales::rescale(percent.of.electron.donor)) %>%ggplot(., aes(x = electron.donors, y = bin.taxa.name, fill = percent.of.electron.donor)) + geom_tile(aes(alpha = rescale, fill = electron.donors), color = "gray") + scale_fill_manual(values = don_col) + coord_equal(-1) +
+  theme(text = element_text(size=8)) + theme(axis.text.x = element_text(hjust = 2.5, vjust = .5)) + scale_alpha(range = c(0, 1)) +
+  scale_x_discrete(position = "bottom") + theme(legend.position = "none") + theme_classic()
+
+#ggsave("output_data/figs/electron_donor_plot_012122.pdf", plot = electron_donor_plot, width = 15, height = 500, units = "in", limitsize = FALSE)
+
+
+```
+
+```{r, echo=FALSE, fig.height=50, fig.width=10}
+####################################################
+# Figure 1G: Electron Acceptor Predictions Figure ## 
+####################################################
+acc_color <- c("#7D8107",
+               "#0D9BF2",
+               "#9b2f1c",
+               "#9dcfc5", 
+               "#4d9d8d")
+clean_metapath4$electron.acceptor <- 
+  factor(clean_metapath4$electron.acceptor,levels = c("Sulfur Reduction",  
+                                                      "Nitrogen Reduction*", 
+                                                      "Iron Reduction",
+                                                      "Microaerobic", 
+                                                      "Aerobic"))
+
+electron_acceptor_plot <- clean_metapath4 %>%
+  group_by(electron.acceptor) %>%
+  mutate(rescale = scales::rescale(percent.of.electron.acceptor)) %>%
+  ggplot(., aes(x = electron.acceptor, y = bin.taxa.name, fill = percent.of.electron.acceptor)) + 
+  geom_tile(aes(alpha = rescale, fill = electron.acceptor), color = "gray") + scale_fill_manual(values = acc_color) +
+  coord_equal(-1) +
+  theme(text = element_text(size=8)) + theme(axis.text.x = element_text(hjust = 2.5, vjust = .5)) + scale_alpha(range = c(0, 1)) + 
+  #scale_fill_brewer(palette=test) +
+  scale_x_discrete(position = "bottom") + theme(legend.position = "none") + theme_classic() 
+
+#ggsave("output_data/figs/testelectron_acceptor_plot_012122.pdf", plot = electron_acceptor_plot, width = 15, height = 500, units = "in", limitsize = FALSE)
+
+```
+
+
+```{r}
+specificVSprev <- grid.arrange(nrow = 1, ncol=4,
+             outer_meta_order2 %>% 
+               ggplot(., aes(x=Metabolism, y=Average_Abundance, fill = factor(class, levels = rev(TopOther(ProvinceSpec, colors, outer_sites_abun)$names)))) +
+               scale_fill_manual(values = TopOther(ProvinceSpec, colors, outer_sites_abun)$allcols) +
+               geom_bar(stat='identity')+ theme(axis.text.x=element_text(angle=45,hjust=1))+
+               theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     panel.background = element_blank(), 
+                     axis.line = element_line(colour = "black"),
+                     legend.position = "none",
+                     plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+                     axis.title.x = element_text(size = 20),
+                     axis.title.y = element_text(size = 20)) +
+               ggtitle("Outer Forearc MAGs") + 
+               labs(y = "Mean MAGs Abundance/Site (GCPM)") + 
+               xlab("9 Samples") + coord_cartesian(ylim = c(0, 610)),
+             
+             fore_meta_order2 %>%
+               ggplot(., aes(x=Metabolism, y=Average_Abundance, fill = factor(class, levels = rev(TopOther(ProvinceSpec, colors, fore_sites_abun)$names)))) +
+               scale_fill_manual(values = TopOther(ProvinceSpec, colors, fore_sites_abun)$allcols) +
+               geom_bar(stat='identity')+ theme(axis.text.x=element_text(angle=45,hjust=1))+
+               theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     panel.background = element_blank(),
+                     axis.line = element_line(colour = "black"),
+                     legend.position = "none",
+                     plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+                     axis.title.y = element_blank(),
+                     axis.title.x = element_text(size = 20),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank()) +
+                 ggtitle("Forearc MAGs") +
+                 xlab("6 Samples") + coord_cartesian(ylim = c(0, 610)),
+
+             arc_meta_order2 %>%
+               ggplot(., aes(x=Metabolism, y=Average_Abundance, fill = factor(class, levels = rev(TopOther(ProvinceSpec, colors, arc_sites_abun)$names)))) +
+               scale_fill_manual(values = TopOther(ProvinceSpec, colors, arc_sites_abun)$allcols) +
+               geom_bar(stat='identity')+ theme(axis.text.x=element_text(angle=45,hjust=1))+
+               theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     panel.background = element_blank(),
+                     axis.line = element_line(colour = "black"),
+                     legend.position = "none",
+                     plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+                     axis.title.y = element_blank(),
+                     axis.title.x = element_text(size = 20),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank()) +
+               ggtitle("Arc MAGs") +
+               xlab("12 Samples") + coord_cartesian(ylim = c(0, 610)),
+
+             shallow_all_meta_order2 %>%
+               ggplot(., aes(x=Metabolism, y=Average_Abundance, fill = factor(class, levels = rev(TopOther(prevalent2, colors, shallow_abun)$names)))) +
+               scale_fill_manual(values = TopOther(prevalent2, colors, shallow_abun)$allcols) +
+               geom_bar(stat='identity')+ theme(axis.text.x=element_text(angle=45,hjust=1))+
+               theme(panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     panel.background = element_blank(),
+                     axis.line = element_line(colour = "black"),
+                     legend.position = "none",
+                     plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+                     axis.title.y = element_blank(),
+                     axis.title.x = element_text(size = 20),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank()) +
+               ggtitle("Delocalized MAGs") +
+               xlab("27 Samples") + coord_cartesian(ylim = c(0, 610)),
+
+             bottom = textGrob("Metabolism",gp = gpar(fontsize = 20))
+             )
+# ggsave("ManuscriptFiles/InTextFigsTables/PrevVSspecific_REDOX_class_012122.pdf", plot = specificVSprev, width = 20,
+#       height = 10, units = "in", limitsize = FALSE)
+# ggsave("ManuscriptFiles/InTextFigsTables/PrevVSspecific_REDOX_class_012122_legend.pdf", plot = specificVSprev, width = 100,
+#          height = 10, units = "in", limitsize = FALSE)
+
+```
+
+```{r}
+cfps <- c("CCB", "r-TCA", "WL")
+
+###########
+# Arc CFP #
+###########
+ArcCBB <- CFP.Redox.provence(arc_sites_abun, AllCBB, ProvinceSpec)
+ArcCBBord <- CFPStackOrder(arc_sites_abun, AllCBB, ProvinceSpec)
+ArcCBB$class <- factor(ArcCBB$class, levels = rev(ArcCBBord))
+
+ArcRTCA <- CFP.Redox.provence(arc_sites_abun, rtca_only, ProvinceSpec)
+ArcRTCAord <- CFPStackOrder(arc_sites_abun, rtca_only, ProvinceSpec)
+ArcRTCA$class <- factor(ArcRTCA$class, levels = rev(ArcRTCAord))
+
+
+ArcWL <- CFP.Redox.provence(arc_sites_abun, wl_only, ProvinceSpec) 
+ArcWLord <- CFPStackOrder(arc_sites_abun, wl_only, ProvinceSpec)
+ArcWL$class <- factor(ArcWL$class, levels = rev(ArcWLord))
+
+
+Arc_cpf_df <- list(ArcCBB, ArcRTCA, ArcWL)
+
+ARCabunM <- list()
+for (i in 1:length(Arc_cpf_df)) {
+  ARCabunM[[i]] <- MAG_bar_plots(df = Arc_cpf_df[[i]], y_height = 230,
+                              type = "Abundance of MAGs",
+                              #legpos = "right",
+                              name = cfps[[i]]) # Using sustum function to construct plots
+  
+}
+ARC_a <- do.call(grid.arrange,c(ARCabunM, list(ncol=3,left = textGrob("Arc", rot = 90, gp=gpar(fontsize=30)))))
+
+# ggsave("output_data/figs/ArcCFP_REDOX_class_12121.jpeg", plot = ARC_a, width = 15,
+#         height = 10, units = "in", limitsize = FALSE)
+# ggsave("output_data/figs/ArcCFP_REDOX_class_12121_legend.jpeg", plot = ARC_a, width = 100,
+#    height = 50, units = "in", limitsize = FALSE)
+
+###############
+# Forearc CFP #
+###############
+#Test
+ForearcCBB <- CFP.Redox.provence(fore_sites_abun, AllCBB, ProvinceSpec)
+ForeCBBord <- CFPStackOrder(fore_sites_abun, AllCBB, ProvinceSpec)
+ForearcCBB$class <- factor(ForearcCBB$class, levels = rev(ForeCBBord))
+
+ForearcRTCA <- CFP.Redox.provence(fore_sites_abun, rtca_only, ProvinceSpec)
+ForeRTCAord <- CFPStackOrder(fore_sites_abun, rtca_only, ProvinceSpec)
+ForearcRTCA$class <- factor(ForearcRTCA$class, levels = rev(ForeRTCAord))
+
+ForearcWL <- CFP.Redox.provence(fore_sites_abun, wl_only, ProvinceSpec) 
+ForeWLord <- CFPStackOrder(fore_sites_abun, wl_only, ProvinceSpec)
+ForearcWL$class <- factor(ForearcWL$class, levels = rev(ForeWLord))
+
+Fore_cpf_df <- list(ForearcCBB, ForearcRTCA, ForearcWL)
+
+ForeAbunM <- list()
+for (i in 1:length(Fore_cpf_df)) {
+  ForeAbunM[[i]] <- MAG_bar_plots(df = Fore_cpf_df[[i]], y_height = 230,
+                                 type = "Abundance of MAGs",
+                                 legpos = "top",
+                                 name = cfps[[i]]) # Using sustum function to construct plots
+  
+}
+Fore_a <- do.call(grid.arrange,c(ForeAbunM, list(ncol=3,left = textGrob("Fore Arc", rot = 90, gp=gpar(fontsize=30)))))
+# ggsave("output_data/figs/ForearcCFP_REDOX_class_122421.jpeg", plot = Fore_a, width = 15,
+#         height = 10, units = "in", limitsize = FALSE)
+# ggsave("output_data/figs/ForearcCFP_REDOX_class_122421_legend.jpeg", plot = Fore_a, width = 100,
+#        height = 50, units = "in", limitsize = FALSE)
+
+#############
+# Outer CFP #
+#############
+OuterCBB <- CFP.Redox.provence(outer_sites_abun, AllCBB, ProvinceSpec)
+OuterCBBord <- CFPStackOrder(outer_sites_abun, AllCBB, ProvinceSpec)
+OuterCBB$class <- factor(OuterCBB$class, levels = rev(OuterCBBord))
+
+OuterRTCA <- CFP.Redox.provence(outer_sites_abun, rtca_only, ProvinceSpec)
+OuterRTCAord <- CFPStackOrder(outer_sites_abun, rtca_only, ProvinceSpec)
+OuterRTCA$class <- factor(OuterRTCA$class, levels = rev(OuterRTCAord))
+
+OuterWL <- CFP.Redox.provence(outer_sites_abun, wl_only, ProvinceSpec) 
+OuterWLord <- CFPStackOrder(outer_sites_abun, wl_only, ProvinceSpec)
+OuterWL$class <- factor(OuterWL$class, levels = rev(OuterWLord))
+
+Out_cpf_df <- list(OuterCBB, OuterRTCA, OuterWL)
+
+OutAbunM <- list()
+for (i in 1:length(Out_cpf_df)) {
+  OutAbunM[[i]] <- MAG_bar_plots(df = Out_cpf_df[[i]], y_height = 230,
+                                  type = "Abundance of MAGs",
+                                  #legpos = "top",
+                                  name = cfps[[i]]) # Using sustum function to construct plots
+}
+Out_a <- do.call(grid.arrange,c(OutAbunM, list(ncol=3,left = textGrob("Outer Forearc", rot = 90, gp=gpar(fontsize=30)))))
+
+# ggsave("output_data/figs/OutCFP_REDOX_class_081221.jpeg", plot = Out_a, width = 15,
+#         height = 10, units = "in", limitsize = FALSE)
+# ggsave("output_data/figs/OutCFP_REDOX_class_081221_legend.jpeg", plot = Out_a, width = 100,
+#        height = 50, units = "in", limitsize = FALSE)
+```
+
+```{r}
+#################
+# Prevalent CFP #
+#################
+PrevCBB <- CFP.Redox.provence(shallow_abun, AllCBB, prevalent2)
+PrevCBBord <- CFPStackOrder(shallow_abun, AllCBB, prevalent2)
+PrevCBB$class <- factor(PrevCBB$class, levels = rev(PrevCBBord))
+
+PrevRTCA <- CFP.Redox.provence(shallow_abun, rtca_only, prevalent2)
+PrevRTCAord <- CFPStackOrder(shallow_abun, rtca_only, prevalent2)
+PrevRTCA$class <- factor(PrevRTCA$class, levels = rev(PrevRTCAord))
+
+PrevWL <- CFP.Redox.provence(shallow_abun, wl_only, prevalent2) 
+PrevWLord <- CFPStackOrder(shallow_abun, wl_only, prevalent2)
+PrevWL$class <- factor(PrevWL$class, levels = rev(PrevWLord))
+
+Prev_cpf_df <- list(PrevCBB, PrevRTCA, PrevWL)
+
+PrevAbunM <- list()
+for (i in 1:length(Prev_cpf_df)) {
+  PrevAbunM[[i]] <- MAG_bar_plots(df = Prev_cpf_df[[i]], y_height = 230,
+                                 type = "Abundance of MAGs",
+                                 #legpos = "top",
+                                 name = cfps[[i]]) # Using sustum function to construct plots
+  
+}
+Prev_a <- do.call(grid.arrange,c(PrevAbunM, list(ncol=3,left = textGrob("Prevalent", rot = 90, gp=gpar(fontsize=30)))))
+
+# ggsave("output_data/figs/PrevCFP_REDOX_class_081221.jpeg", plot = Prev_a, width = 15,
+#        height = 10, units = "in", limitsize = FALSE)
+# ggsave("output_data/figs/PrevCFP_REDOX_class_081221_legend.jpeg", plot = Prev_a, width = 100,
+#        height = 50, units = "in", limitsize = FALSE)
+```
+
+```{r}
+######################################################################
+## Seeing if genes are present where autotrophs are predicted to be ##
+######################################################################
+#Import gene abundance data and rename columns the same as MAG abundance columns
+
+# Remove sites not being analysised
+auto_gene_abun <- auto_gene_abun[setdiff(colnames(auto_gene_abun), c("BQ", "BR1", "PGS", "PBS", "ARS",
+                                       "PG", "PFS", "PF"))]
+
+# Use bac_ko to add bin name column to the gene abundance df
+auto_gene_abun_bins <- auto_gene_abun %>% inner_join(bac_ko, ., by = "gene_id")
+ 
+#Filter gene abundance column for specifically Key genes for cfp
+cfp_keyenzy_ko <- subset(auto_gene_abun_bins,
+                          ko == "K00192" | # CODH/ACS complex subunit alpha [Wood-Ljungdahl]
+                            ko == "K14138" | # acetyl-CoA synthase acsB [Wood-Ljungdahl]
+                            ko == "K00855" | # Phosphoribulokinase [CBB]
+                            ko == 'K15230' #| # ATP-citrate lyase alpha-subunit [rTCA Cycle]
+                          )
+
+abunofcarbonfixers <- subset(cfp_genie, CBB.present == 1 | rTCA.present == 1 | Wood.Ljungdahl.present == 1) # Select only bins w/ predicted cfps
+abunofcarbonfixers2 <- abunofcarbonfixers["bins"] # Only need bin names for carbon fixing bins
+
+cfp_keyenzy_ko2 <- subset(cfp_keyenzy_ko, bins %in% abunofcarbonfixers2$bins) #This has the abun of cfp genes and bin names associated
+cfp_keyenzy_ko3 <- cfp_keyenzy_ko2 %>% subset(., select = c(1,3:32))
+cfp_keyenzy_ko4 <- unite(cfp_keyenzy_ko3, bin.ko, c(1,2), sep=", ", remove=FALSE)
+cfp_keyenzy_ko5 <- subset(cfp_keyenzy_ko4, select = c(-2:-3))
+cfp_keyenzy_ko6 <- cfp_keyenzy_ko5 %>% mutate_if(is.numeric, ~1 * (. != 0))
+cfp_keyenzy_ko7 <- cfp_keyenzy_ko6 %>% group_by(bin.ko) %>% summarise_all(.funs = sum) # This colapes same key gene of same bin into one row and sums their total
+cfp_keyenzy_ko7 <- setDT(cfp_keyenzy_ko7)[, paste0("bin.ko", 1:2) := tstrsplit(bin.ko, ", ")]
+cfp_keyenzy_ko7 <- subset(cfp_keyenzy_ko7, select = c(31:32, 2:30))
+cfp_keyenzy_ko7 <- rename(cfp_keyenzy_ko7, bins = bin.ko1, ko = bin.ko2)
+cfp_keyenzy_ko7$cfp.pathway <- ifelse(cfp_keyenzy_ko7$ko == "K00192", 'Wood-Ljungdahl',
+                   ifelse(cfp_keyenzy_ko7$ko == "K14138", 'Wood-Ljungdahl',
+                          ifelse(cfp_keyenzy_ko7$ko =="K00855", 'CBB',
+                                 ifelse(cfp_keyenzy_ko7$ko == "K15230", "rTCA Cycle", 'something elese'))))
+ 
+cfp_mag_abun <- subset(abun_py, bins %in% abunofcarbonfixers2$bins ) # This has the abundance of the cfp mags only
+
+cfp_keyenzy_ko7 <- bind_rows(cfp_keyenzy_ko7, cfp_mag_abun)
+ 
+cfp_keyenzy_ko8 <- cfp_keyenzy_ko7 %>% mutate_if(is.numeric, ~1 * (. != 0)) # This is nearly the final data frame needed for this analysis. Just need to remove some rows
+cfp_keyenzy_ko9 <- cfp_keyenzy_ko8[-c(48,52,86,91,98,113,228), ]
+cfp_keyenzy_ko10 <- cfp_keyenzy_ko9 %>% subset(., select = c(1:2, 32, 3:31))
+
+binidonlycfp_keyenzy_ko <- cfp_keyenzy_ko10 %>% subset(., select = -c(2:3,16,18)) # 16 and 18 are PLS and BRS1, which should have been removed before
+minus <- function(x) sum(x[1],na.rm=T) - sum(x[2],na.rm=T)
+test <- cfp_keyenzy_ko10 %>% group_by(bins)  %>% select(where(is.numeric)) %>% summarise_all(.funs = minus) 
+table(unlist(test))
+ 
+1960/(1300+1960)*100
+
+```
+
+# DSR vs RDSR Tree
+### I will need to set this in a different location in this markdown after I work out the bugs
+
+```{r}
+tree <- GetTreeWithNameProcessing('base_data/dsr_rdsr_RAxML_bipartitions.result')
+tree2 <- groupClade(tree, c(173, 214))
+
+# Ploting rdsr vs dsr
+p <- ggtree(tree2, layout = "circular",
+            branch.length = "none",
+            aes(color=group)) +
+  #geom_text(aes(label=node)) +
+  scale_color_manual(values=c("darkorange", "darkblue")) + 
+  geom_tiplab(size = 2) + 
+  theme(legend.position = "none") 
+ 
+
+#ggsave("output_data/rdsr_vs_dsr053021.pdf",  plot = p)
+```
+
+
+```{r}
+######################################
+# Cord Diagram For Province Specific #
+######################################
+cbbtots <- AllCBB %>% inner_join(., ProvinceSpec[,-c(1,3:9)], by = "bins")
+rtcatots <- rtca_only %>% inner_join(., ProvinceSpec[,-c(1,3:9)], by = "bins")
+wltots <- wl_only %>% inner_join(., ProvinceSpec[,-c(1,3:9)], by = "bins")
+colSums(cbbtots[,c(18:44)])
+
+CircosData <- as.data.frame(row.names = c("CBB", "rTCA", "WL"), rbind(colSums(cbbtots[,c(18:44)]), colSums(rtcatots[,c(18:44)]), colSums(wltots[,c(18:44)])))
+CircosData2 <- CircosData[,c('BQS', 'BQF', 'BRF1', 'BRS2', 'BRF2', 'BRS1', 'ETS', 'QNF', 'QNS', 'RVF', 'TCF', 'TCS',
+                             'CYF', 'CYS', 'FAS','SLF', 'MTF', 'SLS',
+                             'QHF2', 'QHS2', 'EPS','EPF', 'ESF9', 'RSS', 'RSF', 'SIS', 'SIF')]
+
+colnames(CircosData)
+CircosData2 <- as.matrix(CircosData2)
+  
+nm = unique(unlist(dimnames(CircosData2)))
+colordf <- c("#02F0EC", "#eff582", "#7570B3", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon",
+            "maroon", "maroon", rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255),
+            rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), "darkblue", "darkblue", 
+            "darkblue", "darkblue", "darkblue", "darkblue", "darkblue", "darkblue", "darkblue")
+names(colordf) <- nm
+
+pdf("ProvinceCordPlot020222.pdf")
+chordDiagram(CircosData2, grid.col = colordf,
+             annotationTrack = c("grid", "axis"),
+             preAllocateTracks = list(
+               track.height = mm_h(4),
+               track.margin = c(mm_h(4), 0)
+             ))
+circos.track(track.index = 2, panel.fun = function(x, y) {
+  sector.index = get.cell.meta.data("sector.index")
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  circos.text(mean(xlim), mean(ylim), sector.index, cex = 0.6, niceFacing = TRUE)
+}, bg.border = NA)
+
+circos.clear()
+
+
+
+
+##############################
+# Cord Diagram For Prevalent #
+##############################
+cbbtotsPrev <- AllCBB %>% inner_join(., prevalent[,-c(1,3:9)], by = "bins")
+rtcatotsPrev <- rtca_only %>% inner_join(., prevalent[,-c(1,3:9)], by = "bins")
+wltotsPrev <- wl_only %>% inner_join(., prevalent[,-c(1,3:9)], by = "bins")
+
+CircosDataPrev <- as.data.frame(row.names = c("CBB", "rTCA", "WL"), rbind(colSums(cbbtotsPrev[,c(18:44)]), colSums(rtcatotsPrev[,c(18:44)]), colSums(wltotsPrev[,c(18:44)])))
+CircosDataPrev2 <- CircosDataPrev[,c('BQS', 'BQF', 'BRF1', 'BRS2', 'BRF2', 'BRS1', 'ETS', 'QNF', 'QNS', 'RVF', 'TCF', 'TCS',
+                             'CYF', 'CYS', 'FAS','SLF', 'MTF', 'SLS',
+                             'QHF2', 'QHS2', 'EPS','EPF', 'ESF9', 'RSS', 'RSF', 'SIS', 'SIF')]
+
+CircosDataPrev2 <- as.matrix(CircosDataPrev2)
+nm = unique(unlist(dimnames(CircosDataPrev2)))
+colordf <- c("#02F0EC", "#eff582", "#7570B3", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon", "maroon",
+             "maroon", "maroon", rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255),
+             rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), rgb(red=204, green=85, blue=0, max=255), "darkblue", "darkblue", 
+             "darkblue", "darkblue", "darkblue", "darkblue", "darkblue", "darkblue", "darkblue")
+names(colordf) <- nm
+pdf("PrevalentCordPlot.pdf")
+chordDiagram(CircosDataPrev2, grid.col = colordf,
+             annotationTrack = c("grid", "axis"),
+             preAllocateTracks = list(
+               track.height = mm_h(4),
+               track.margin = c(mm_h(4), 0)
+             ))
+circos.track(track.index = 2, panel.fun = function(x, y) {
+  sector.index = get.cell.meta.data("sector.index")
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  circos.text(mean(xlim), mean(ylim), sector.index, cex = 0.6, niceFacing = TRUE)
+}, bg.border = NA)
+
+circos.clear()
+```

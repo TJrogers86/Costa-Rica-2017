@@ -1,0 +1,249 @@
+---
+title: "Cluster Metabolic analysis"
+author: "TJ"
+date: "5/14/2021"
+output: pdf_document
+---
+```{r, echo=FALSE, message=FALSE}
+library(tidyverse)
+cluster1Metab <- read_csv("output/cluster1Metab.csv") # This is the arc/forearc
+acluster3Metab <- read_csv("output/cluster3Metab.csv") # This is actually cluster 2 (Outer Forearc)
+PrevalentMetab <- read_csv("output/PrevalentMetab.csv") # This is our prevalent group
+```
+
+
+# Forearc and Arc analysis: Cluster 1
+```{r, echo=FALSE}
+#### Forearc and Arc analysis (cluster 1) ####
+metabol_list <- list("Iron Oxidation", "Nitrogen Oxidation",
+                       "Hydrogen Oxidation", "Sulfur Oxidation*", 
+                       "Sulfur Reduction",  "Nitrogen Reduction*",
+                       "Iron Reduction", "Microaerobic", "Aerobic",
+                       "CBB.present",  "CBB_FormI", "CBB_FormII", 
+                       "CBB_FormI_and_II", "CBB_Form_Unknown", 
+                       "rTCA.present", "Wood.Ljungdahl.present")   
+```
+
+## Total number of MAGs in Cluster 1
+```{r, echo=FALSE}
+print(paste("The total number of MAGs in the Forearc and Arc is", nrow(cluster1Metab)))
+```
+
+
+## Percent of total reads in that bined Cluster 1
+```{r, echo=FALSE}
+print(paste("The percent of total binned read found in the Forearc and Arc is",
+            sum(cluster1Metab[,10:36])/sum(sum(cluster1Metab[,10:36]), sum(cluster3Metab[,10:36]), sum(PrevalentMetab[,10:36]))*100, "%"))
+```
+
+### Cluster 1: Percent of MAGs
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- nrow(subset(cluster1Metab, cluster1Metab[,i] >0))/nrow(cluster1Metab)*100
+  print(paste(i, " is in", x, "% of the MAGs"))
+}
+```
+
+
+### Cluster 1: Percent of reads
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- sum(subset(cluster1Metab, cluster1Metab[,i] >0)[,10:36])/sum(cluster1Metab[,10:36])*100
+  print(paste(i, " is in", x, "% of the Reads"))
+}
+```
+
+
+# Outer Forearc AnalysisOuter Forearc
+```{r, echo=FALSE}
+#### Outer forearc analysis (cluster 2) ####
+library(tidyverse)
+
+metabol_list <- list("Iron Oxidation", #"Nitrogen Oxidation",
+                       "Hydrogen Oxidation", "Sulfur Oxidation*", 
+                       "Sulfur Reduction",  "Nitrogen Reduction*",
+                       "Iron Reduction", "Microaerobic", "Aerobic",
+                       "CBB.present",  
+                       "rTCA.present", "Wood.Ljungdahl.present") 
+```
+
+
+## Total number of MAGs in Outer Forearc
+```{r, echo=FALSE}
+print(paste("The total number of MAGs in the Outer forearc is", nrow(cluster3Metab)))
+
+```
+
+
+## Percent of total reads that bined in Outer Forearc
+```{r, echo=FALSE}
+print(paste("The percent of total binned read found in Outer Forearc is",
+            sum(cluster3Metab[,10:36])/sum(sum(cluster1Metab[,10:36]), sum(cluster3Metab[,10:36]), sum(PrevalentMetab[,10:36]))*100, "%"))
+```
+
+
+### Outer Forearc: Percent of MAGs
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- nrow(subset(cluster3Metab, cluster3Metab[,i] >0))/nrow(cluster3Metab)*100
+  print(paste(i, " is in", x, "% of the MAGs"))
+}
+
+
+```
+
+
+### Outer Forearc: Percent of reads
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- sum(subset(cluster3Metab, cluster3Metab[,i] >0)[,10:36])/sum(cluster3Metab[,10:36])*100
+  print(paste(i, " is in", x, "% of the Reads"))
+
+```
+
+
+# Prevalent: Prevalent
+```{r, echo=FALSE}
+#### Prevalent cluster 3 ###
+
+metabol_list <- list("Iron Oxidation", "Nitrogen Oxidation",
+                       "Hydrogen Oxidation", "Sulfur Oxidation*", 
+                       "Sulfur Reduction",  "Nitrogen Reduction*",
+                       "Iron Reduction", "Microaerobic", "Aerobic",
+                       "CBB.present",  "CBB_FormI", "CBB_FormII", 
+                       "CBB_FormI_and_II", "CBB_Form_Unknown", 
+                       "rTCA.present", "Wood.Ljungdahl.present") 
+```
+
+## Total number of MAGs in Prevalent
+```{r, echo=FALSE}
+print(paste("The total number of MAGs in the Prevalent Community is", nrow(PrevalentMetab)))
+
+```
+
+
+## Percent of total reads that bined in Prevalent
+```{r, echo=FALSE}
+print(paste("The percent of total binned read found in the Prevalent community is",
+            sum(PrevalentMetab[,10:36])/sum(sum(cluster1Metab[,10:36]), sum(cluster3Metab[,10:36]), sum(PrevalentMetab[,10:36]))*100, "%"))
+
+```
+
+
+### Prevalent: Percent MAGs
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- nrow(subset(PrevalentMetab, PrevalentMetab[,i] >0))/nrow(PrevalentMetab)*100
+  print(paste(i, " is in", x, "% of the MAGs"))
+}
+```
+
+
+### Prevalent: Percent reads
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- sum(subset(PrevalentMetab, PrevalentMetab[,i] >0)[,10:36])/sum(PrevalentMetab[,10:36])*100
+  print(paste(i, " is in", x, "% of the Reads"))
+}
+
+
+```
+
+
+### Forearc only
+```{r, echo=FALSE}
+forearc <-  new_cluster1 %>% subset(., select = c('bins','kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species',
+                                                      'CYF', 'CYS', 'FAS','SLF', 'MTF', 'SLS', 'cluster')) %>%
+  inner_join(., clean_metapath3[,-c(2:8)], by = "bins")
+
+```
+
+```{r, echo=FALSE}
+metabol_list <- list("Iron Oxidation", "Nitrogen Oxidation",
+                       "Hydrogen Oxidation", "Sulfur Oxidation*", 
+                       "Sulfur Reduction",  "Nitrogen Reduction*",
+                       "Iron Reduction", "Microaerobic", "Aerobic",
+                       "CBB.present",  
+                       "rTCA.present", "Wood.Ljungdahl.present") 
+for (i in metabol_list){
+  x <- sum(subset(forearc, forearc[,i] >0)[,9:14])/sum(forearc[,9:14])*100
+  print(paste(i, " is in", x, "% of the Reads"))
+}
+```
+
+### arc only
+```{r, echo=FALSE}
+arc <-  new_cluster1 %>% subset(., select = c('bins','kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'BQS', 'BQF',
+                                                  'BRF1', 'BRS2', 'BRF2', 'BRS1', 'ETS', 'QNF', 'QNS', 'RVF', 'TCF', 'TCS')) %>%
+  inner_join(., clean_metapath3[,-c(2:8)], by = "bins")
+
+```
+
+```{r, echo=FALSE}
+metabol_list <- list("Iron Oxidation", "Nitrogen Oxidation",
+                       "Hydrogen Oxidation", "Sulfur Oxidation*", 
+                       "Sulfur Reduction",  "Nitrogen Reduction*",
+                       "Iron Reduction", "Microaerobic", "Aerobic",
+                       "CBB.present",  
+                       "rTCA.present", "Wood.Ljungdahl.present") 
+for (i in metabol_list){
+  x <- sum(subset(arc, arc[,i] >0)[,9:20])/sum(arc[,9:20])*100
+  print(paste(i, " is in", x, "% of the Reads"))
+}
+```
+
+```{r, echo=FALSE}
+for (i in metabol_list){
+  x <- nrow(subset(arc, arc[,i] >0))/nrow(arc)*100
+  print(paste(i, " is in", x, "% of the MAGs"))
+}
+
+```
+
+
+########################
+# Aerobic MAGs with WL #
+########################
+
+```{r, echo=FALSE}
+WLO2 <- bac_ko %>% subset(bins == "bin_377" | bins ==  "bin_237" |
+                 bins == "bin_103" | bins == "bin_277" | 
+                 bins == "bin_312" | bins == "bin_364" | 
+                 bins == "bin_306"| bins == "bin_228" |
+                 bins == "bin_368") %>% subset(ko == "K00404"| ko == "K02298")
+
+
+
+
+```
+
+
+#####
+# Cyanobacteria (Phototroph)
+####
+# Percent of reads that mapped to phototrophs
+```{r}
+(sum(abun_py[abun_py$bins %in% c("bin_387", "bin_20", "bin_379", "bin_317"),][,15:41]))/sum(abun_py[,15:41])*100
+```
+
+
+```{r}
+#outerinfo2
+#ForearcArcinfo2
+#arcinfo2
+#prevalentinfo
+print(paste(rowSums(cluster1Metab[cluster1Metab$phylum == 'Cyanobacteriota',][,10:38], na.rm = TRUE)/sum(sum(cluster1Metab[,10:38]))*100, "%"))
+Cyanobac <- sum(subset(arc, arc[,i] >0)[,9:20])/sum(arc[,9:20])*100
+print(paste(i, " is in", x, "% of the Reads"))
+
+```
+
+
+
+
+
+
+
+
+
+
