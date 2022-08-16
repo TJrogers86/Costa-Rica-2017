@@ -1,0 +1,505 @@
+---
+title: "CCA Analysis"
+author: "TJ"
+date: "8/30/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+# Load in the libraries
+```{r, echo=FALSE}
+source("R/cr_17_packages.R")  # Required Packages
+```
+
+# Import data 
+```{r, include = FALSE}
+abun_py <- read_csv("base_data/abun_py.csv")
+prevalent2 <- read_csv("base_data/prevalent.csv")
+ProvinceSpec <- read_csv("base_data/ProvinceSpec.csv")
+geochem <- read_csv("base_data/SubductCR_bac_sample_table2.csv")
+```
+
+#Required homemade functions
+```{r}
+source("R/cr17_custom_functions_051321.R") # My Custom Functions
+source("R/cr17-data-import-modify_020222.R")
+```
+
+
+# Organizing MAG data so that it lines up with geochem layout
+```{r, include = FALSE}
+#################################
+# Reorganizing the species data #
+#################################
+# I want to organize the abun_py so that it will have a similar layout to the geochemistry data. Then I want to seperated into three different dataframes: All MAGs, those specific to a province and those prevalent across sites
+AllMAGAbun <- as.data.frame(t(abun_py[,-c(1, 3:14)] %>% column_to_rownames(., var = "bins"))) 
+ProvBinAbun<- t(ProvinceSpec[,-c(1, 3:9, 37)] %>% column_to_rownames(., var = "bins"))
+ProvBinAbun <- ProvBinAbun[!rownames(ProvBinAbun) %in% "DCO_LLO_Bv4v5..BQF_BQ170220",] #No MAGs are in the province specific community as it pertains to BQF
+PrevBinAbun<- t(prevalent2[,-c(1, 3:9, 37)] %>% column_to_rownames(., var = "bins"))
+```
+
+# Interpulate missing data 
+Here, we are going to use the missForest function of random forest to compute missing values
+```{r, include = FALSE}
+#Geochem data
+geochem <- read.csv("base_data/SubductCR_bac_sample_table2.csv", stringsAsFactors = T)
+
+set.seed(82)
+geochem.int <- missForest(geochem[,-c(13,16,36,48,63)], maxiter=10, variablewise = TRUE, verbose = TRUE, ntree=5000)
+
+geomForest <- geochem.int$ximp  %>% .[geochem.int$ximp$sample %in% rownames(AllMAGAbun),] %>% remove_rownames %>% column_to_rownames(., var = "sample")
+ProvgeomForest <- geochem.int$ximp  %>% .[geochem.int$ximp$sample %in% rownames(ProvBinAbun),] %>% remove_rownames %>% column_to_rownames(., var = "sample")
+PrevgeomForest <- geochem.int$ximp  %>% .[geochem.int$ximp$sample %in% rownames(PrevBinAbun),] %>% remove_rownames %>% column_to_rownames(., var = "sample")
+```
+
+  
+# Z-score transform the geochem data. 
+```{r}
+#First, we need to Z-transform the numerical data. This is because measurements are taken with different metrics for each variable. This will allow us to run a co-occurance analysis on these variables
+#This is for All MAGs
+cols <- colnames(geomForest[,16:76])
+geomForest.Z <- geomForest
+geomForest.Z[cols] <- scale(geomForest.Z[cols])
+geomForest.Z <- data.frame(geomForest.Z)[,c(1,4,7:ncol(geomForest.Z))]
+
+
+#This is for the Prov
+Provcols <- colnames(geomForest[,16:76])
+ProvForest.Z <- ProvgeomForest
+ProvForest.Z[Provcols] <- scale(ProvForest.Z[Provcols])
+ProvegeomForest.Z <- data.frame(ProvForest.Z)[,c(1,4,7:ncol(ProvForest.Z))] %>% .[rownames(.) %in% rownames(ProvBinAbun),]
+
+
+#This is for the Prev
+cols <- colnames(PrevgeomForest[,16:76])
+PrevgeomForest.Z <- PrevgeomForest
+PrevgeomForest.Z[cols] <- scale(PrevgeomForest[cols])
+PrevegeomForest.Z <- data.frame(PrevgeomForest.Z)[,c(1,4,7:ncol(PrevgeomForest.Z))] %>% .[rownames(.) %in% rownames(PrevBinAbun),]
+
+```
+#############################################################################################
+###                          Province Specific below here                                 ###
+#############################################################################################
+
+Because of the large distribution space of the hot springs, we are going to have species in some places, but not others. We also applied a cutoff threshold earlier of >.03 (everything below that amount equals zero). This causes problems for downstream analysis. We need to transform the data to give little weight to low/no abundant organisms. We accomplish this with the hellinger transformation
+```{r}
+#Distance matrix for province data
+ProvBinAbun.hell <- decostand(ProvBinAbun, "hellinger")
+```
+
+
+Im going to build a model based on the most significant correlations found in thr results of the linear vector fitting onto the nMDS ordination of the 16S study. First, we need to check for high correlations between our variables of choice and remove one of the variables if two have a high correlation.
+```{r}
+pdf("output_data/GeoCorrelations.pdf")
+pairs.panels(ProvegeomForest.Z[,c(16, 13, 17,20,21, 22, 24, 23,44,48,49,51,60,64,68,69,72)], scale=T)
+dev.off()
+```
+#########################################################################################
+# Prov speific and Prev plots based on the enviromental variables important to the prov #
+#########################################################################################
+We see that we have several variables co-correlating. The highest of these being fe_ac and zn_ac. From knowing the background of the previous study, I conclude that i should remove zn_ac from the model and use fe_ac as a proxy for it
+```{r}
+OverAllCCA <- cca(ProvBinAbun.hell~ temp + ph + dic + doc + fe_ac + ni_ac +  po4 + al_s + cr_s + ni_s, ProvegeomForest.Z)
+
+```
+
+
+```{r}
+anova(OverAllCCA)
+```
+This model is very significant. But I first need to check the VIF's to make sure they are below 20 (or 10, not sure which yet)
+```{r}
+vif.cca(OverAllCCA)
+```
+Based on this, sediment cr and sediment ni have VIFs way above 20. Refering to the pairs.panel again, I see that they have a very high correlation with each other. I will remove cr from the model and use ni as a proxy for it
+
+
+```{r}
+OverAllCCA2 <- cca(ProvBinAbun.hell~ temp + ph + dic + doc + fe_ac + ni_ac +  po4 + al_s +  ni_s, ProvegeomForest.Z)
+```
+
+```{r}
+anova(OverAllCCA2)
+```
+The model is still significant. Now we should check VIF once again
+
+```{r}
+vif.cca(OverAllCCA2)
+```
+All are below 10! This is great!
+
+
+```{r}
+anova(OverAllCCA2, permutations = how(nperm = 9999),by="margin")
+```
+lets run an ordistep on it to see if it comes up with a valid model
+```{r}
+ordistep(OverAllCCA2)
+```
+Now to build the model suggested by ordistep. It mostly reflects what was found in the 16S paper:
+cca(formula = ProvBinAbun.hell ~ temp + dic + fe_ac + ni_ac + po4 + al_s, data = ProvEvo)
+
+Final model
+```{r}
+FinalBestCCA <- cca(formula = ProvBinAbun.hell ~ temp + dic + fe_ac + ni_ac + po4 + al_s, data = ProvegeomForest.Z)
+```
+
+
+```{r}
+summary(FinalBestCCA)
+```
+
+```{r}
+anova.cca(FinalBestCCA, permutations =how(nperm=9999))
+```
+
+
+```{r}
+anova.cca(FinalBestCCA, permutations =how(nperm=9999), by="margin")
+```
+
+```{r}
+anova.cca(FinalBestCCA, permutations =how(nperm=9999), by="axis")
+```
+
+Time to plot this final model!
+```{r}
+FinalBestCCA.Cols <- ModifySpecDF(FinalBestCCA, colorsdf1, Phycolsdf1, ProvinceSpec, ProvegeomForest.Z)
+sp <-fortify(FinalBestCCA.Cols$modd)
+
+# #Species Colors
+# TopAcross <- list("FirmicutesH, CSP1~3", "Chloroflexota, Dehalococcoidia", "Proteobacteria, Gammaproteobacteria", "Chloroflexota, Anaerolineae",
+# "Desulfobacterota, Syntrophia", "Bacteroidota, UBA10030", "Actinobacteriota, Coriobacteriia", "Bipolaricaulota, Bipolaricaulia",
+# "Bacteroidota, Bacteroidia", "Nitrospirota, Thermodesulfovibrionia", "Patescibacteria, Paceibacteria", "DesulfobacterotaB, Syntrophorhabdia",
+# "Deinococcota, Deinococci", "Crenarchaeota, Nitrososphaeria", "Acidobacteriota, Acidobacteriae", "Aquificota, Aquificae", "Desulfobacterota, BSN033",
+# "Actinobacteriota, UBA4738", "Armatimonadota, Fimbriimonadia", "Bacteroidota, Kapabacteria")
+#All Species data frame to plot
+
+
+
+# #The top species data frame to plot
+
+#All CFP organisms dataframe to plot
+AllSpecies <- FinalBestCCA.Cols$classes.ScaleSpecies
+NONCFPALL <- subset(AllSpecies, !(bins %in% true_autotrophs$bins))
+CFPALL <- AllSpecies[AllSpecies$bins %in% true_autotrophs$bins,]
+WLCFP <- AllSpecies[AllSpecies$bins %in% subset(true_autotrophs, Wood.Ljungdahl.present ==1)$bins,]
+CBBCFP <- AllSpecies[AllSpecies$bins %in% subset(true_autotrophs, CBB.present ==1)$bins,]
+RTCACFP <- AllSpecies[AllSpecies$bins %in% subset(true_autotrophs, rTCA.present ==1)$bins,]
+```
+
+This is the prevalent analysis
+```{r}
+#Distance matrix for province data
+PrevBinAbun.hell <- decostand(PrevBinAbun, "hellinger")
+```
+
+#########################################################################################
+# Prov speific and Prev plots based on the enviromental variables important to the prev #
+#########################################################################################
+
+```{r}
+PrevVars1 <- cca(PrevBinAbun.hell~ temp + ph + dic + doc + fe_ac + ni_ac +  po4 + al_s +  ni_s, PrevegeomForest.Z)
+```
+
+```{r}
+anova(PrevVars1, permutations =how(nperm=9999))
+```
+This model is slightly significant.
+
+```{r}
+anova.cca(PrevVars1, permutations =how(nperm=9999), by="margin")
+```
+Based on the above perm anova, it looks as though the most important, and only important, var is dic. Need to run a stepwise regression to see if the model improves
+```{r}
+ordistep(PrevVars1)
+```
+Based on this stepwise regression, we see that the only important vars are dic and ni_ac.
+
+```{r}
+FinalPrevVars <- cca(PrevBinAbun.hell ~ dic +  ni_ac, data = PrevegeomForest.Z)
+```
+After running these parameters and others, the best model was to include only dic and ni_ac. 
+
+
+```{r}
+anova(FinalPrevVars)
+```
+This model is very significant 
+
+
+```{r}
+anova(FinalPrevVars, permutations = how(nperm = 9999),by="margin")
+```
+Both vars are sig, but dic is the bigest driver
+
+```{r}
+summary(FinalPrevVars)
+```
+The variables within this model are significant, but its only explaining 14% of the variation in the samples. Lets plot this and see what it looks like.
+
+Time to plot this final model!
+```{r}
+FinalPrevBestCCA.Cols <- ModifySpecDF(FinalPrevVars, colorsdf1, Phycolsdf1, prevalent2, PrevegeomForest.Z)
+sp <-fortify(FinalPrevBestCCA.Cols$modd)
+
+#All CFP organisms dataframe to plot
+PrevAllSpecies <- FinalPrevBestCCA.Cols$classes.ScaleSpecies
+PrevNONCFPALL <- subset(PrevAllSpecies, !(bins %in% true_autotrophs$bins))
+PrevCFPALL <- PrevAllSpecies[PrevAllSpecies$bins %in% true_autotrophs$bins,]
+PrevWLCFP <- PrevAllSpecies[PrevAllSpecies$bins %in% subset(true_autotrophs, Wood.Ljungdahl.present ==1)$bins,]
+PrevCBBCFP <- PrevAllSpecies[PrevAllSpecies$bins %in% subset(true_autotrophs, CBB.present ==1)$bins,]
+PrevRTCACFP <- PrevAllSpecies[PrevAllSpecies$bins %in% subset(true_autotrophs, rTCA.present ==1)$bins,]
+
+
+
+```
+
+
+```{r}
+ProvCCAScores <- summary(FinalBestCCA.Cols$modd)$cont$importance
+PrevCCAScores <- summary(FinalPrevBestCCA.Cols$modd)$cont$importance
+
+ProvSpeciesScores <- autoplot(FinalBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids"), scaling = 2) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = FinalBestCCA.Cols$classes.ScaleSpecies, mapping = aes(x = CCA1, y = CCA2), color = FinalBestCCA.Cols$classes.ScaleSpecies$PhyColors, 
+             alpha = 0.6, shape = 19, size = FinalBestCCA.Cols$classes.ScaleSpecies$ScaledAver) + #This is coloring the MAGs by Phy and Class
+  geom_point(data = FinalBestCCA.Cols$Sites.ScalingSpecies3, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalBestCCA.Cols$Sites.ScalingSpecies3$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalBestCCA.Cols$Sites.ScalingSpecies3$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Province MAGs: Species Scale") + labs(y= paste0("CCA2 ", round(ProvCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(ProvCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank())  
+
+ProvSiteScores <-autoplot(FinalBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids"), scaling = 1) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = FinalBestCCA.Cols$Sites.ScalingSites, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalBestCCA.Cols$Sites.ScalingSites$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalBestCCA.Cols$Sites.ScalingSites$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Province MAGs: Site Scale") + labs(y= paste0("CCA2 ", round(ProvCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(ProvCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank()) 
+
+CCAPlotCFP <- autoplot(FinalBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids")) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = WLCFP, mapping = aes(x = CCA1, y = CCA2), color = "purple", alpha = 0.6, size = WLCFP$ScaledAver) +
+  geom_point(data = CBBCFP, mapping = aes(x = CCA1, y = CCA2), color = "blue", alpha = 0.6, size = CBBCFP$ScaledAver) +
+  geom_point(data = RTCACFP, mapping = aes(x = CCA1, y = CCA2), color = "darkgoldenrod2", alpha = 0.6, size = RTCACFP$ScaledAver) +
+  theme_bw() + ggtitle("Province Autotroph MAGs") + labs(y= paste0("CCA2 ", round(ProvCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(ProvCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank()) 
+
+
+PrevSpeciesScores <- autoplot(FinalPrevBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids"), scaling = 2) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = FinalPrevBestCCA.Cols$classes.ScaleSpecies, mapping = aes(x = CCA1, y = CCA2), color = FinalPrevBestCCA.Cols$classes.ScaleSpecies$PhyColors, 
+             alpha = 0.6, size = FinalPrevBestCCA.Cols$classes.ScaleSpecies$ScaledAver) + #This is coloring the MAGs by Phy and Class
+  geom_point(data = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Prevalent MAGs: Species Scale") + 
+  labs(y= paste0("CCA2 ", round(PrevCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(PrevCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank()) + xlim(-4,1)
+
+PrevCCAPlotCFP <- autoplot(FinalPrevBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids")) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = PrevWLCFP, mapping = aes(x = CCA1, y = CCA2), color = "purple", alpha = 0.6, size = PrevWLCFP$ScaledAver) +
+  geom_point(data = PrevCBBCFP, mapping = aes(x = CCA1, y = CCA2), color = "blue", alpha = 0.6, size = PrevCBBCFP$ScaledAver) +
+  geom_point(data = PrevRTCACFP, mapping = aes(x = CCA1, y = CCA2), color = "darkgoldenrod2", alpha = 0.6, size = PrevRTCACFP$ScaledAver) +
+  theme_bw() + ggtitle("Prevalent Autotroph MAGs") + labs(y= paste0("CCA2 ", round(PrevCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(PrevCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank()) + xlim(-4,1)
+
+PrevSiteScores <-autoplot(FinalPrevBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids"), scaling = 1) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = FinalPrevBestCCA.Cols$Sites.ScalingSites, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalPrevBestCCA.Cols$Sites.ScalingSites$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalPrevBestCCA.Cols$Sites.ScalingSites$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Prevalent MAGs: Site Scale") + labs(y= paste0("CCA2 ", round(PrevCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(PrevCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank())
+
+ProvAutoHeteroCCAPlotCFP <- autoplot(FinalBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids")) + 
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  geom_point(data = WLCFP, mapping = aes(x = CCA1, y = CCA2), color = "purple", alpha = 0.6, size = WLCFP$ScaledAver) +
+  geom_point(data = CBBCFP, mapping = aes(x = CCA1, y = CCA2), color = "blue", alpha = 0.6, size = CBBCFP$ScaledAver) +
+  geom_point(data = RTCACFP, mapping = aes(x = CCA1, y = CCA2), color = "darkgoldenrod2", alpha = 0.6, size = RTCACFP$ScaledAver) +
+  geom_point(data = NONCFPALL, mapping = aes(x = CCA1, y = CCA2), color = "gray", alpha = 0.6, size = NONCFPALL$ScaledAver) +
+  geom_point(data = FinalBestCCA.Cols$Sites.ScalingSpecies3, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalBestCCA.Cols$Sites.ScalingSpecies3$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalBestCCA.Cols$Sites.ScalingSpecies3$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Province Autotroph MAGs") + labs(y= paste0("CCA2 ", round(ProvCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(ProvCCAScores[2,1]*100, 2), "%")) +
+  theme(legend.position = "none", panel.grid = element_blank())
+
+PrevAutoHeteroCCAPlotCFP <- autoplot(FinalPrevBestCCA.Cols$modd, layers = c("sites", "biplot", "centroids")) + 
+  geom_point(data = PrevWLCFP, mapping = aes(x = CCA1, y = CCA2), color = "purple", alpha = 0.6, size = PrevWLCFP$ScaledAver) +
+  geom_point(data = PrevCBBCFP, mapping = aes(x = CCA1, y = CCA2), color = "blue", alpha = 0.6, size = PrevCBBCFP$ScaledAver) +
+  geom_point(data = PrevRTCACFP, mapping = aes(x = CCA1, y = CCA2), color = "darkgoldenrod2", alpha = 0.6, size = PrevRTCACFP$ScaledAver) +
+  geom_point(data = PrevNONCFPALL, mapping = aes(x = CCA1, y = CCA2), color = "gray", alpha = 0.6, size = PrevNONCFPALL$ScaledAver) +
+  geom_point(data = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3, mapping = aes(x = CCA1, y = CCA2),
+             color = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3$Cols$color, size = 6, shape=18) +
+  geom_text(data = FinalPrevBestCCA.Cols$Sites.ScalingSpecies3$Cols, mapping = aes(x = CCA1, y = CCA2, label = abbrev), hjust=.5, vjust=-1) +
+  theme_bw() + ggtitle("Prevalent Autotroph MAGs") + labs(y= paste0("CCA2 ", round(PrevCCAScores[2,2]*100, 2), "%"), x = paste0("CCA1 ", round(PrevCCAScores[2,1]*100, 2), "%")) +
+  geom_vline(xintercept=c(0), linetype="dashed", color = "gray") +
+  geom_hline(yintercept=c(0), linetype="dashed", color = "gray") +
+  theme(legend.position = "none", panel.grid = element_blank()) 
+
+PrevWLCFP$CFPcols <- "purple"
+PrevWLCFP$CFP <- "WL"
+WLCFP$CFPcols <- "purple"
+WLCFP$CFP <- "WL"
+PrevCBBCFP$CFPcols <- "blue"
+PrevCBBCFP$CFP <- "CBB"
+CBBCFP$CFPcols <- "blue"
+CBBCFP$CFP <- "CBB"
+PrevRTCACFP$CFPcols <- "darkgoldenrod2"
+PrevRTCACFP$CFP <- "RTCA"
+RTCACFP$CFPcols <- "darkgoldenrod2"
+RTCACFP$CFP <- "RTCA"
+PrevNONCFPALL$CFPcols <- "gray"
+PrevNONCFPALL$CFP <- "NONE"
+NONCFPALL$CFPcols <- "gray"
+NONCFPALL$CFP <- "NONE"
+CFPSpecies<- rbind(PrevWLCFP, WLCFP, PrevCBBCFP, CBBCFP, PrevRTCACFP, RTCACFP, PrevNONCFPALL, NONCFPALL)
+
+CFPCOLS <- c("purple", "blue", "darkgoldenrod2", "gray")
+names(CFPCOLS) <- c("WL", "CBB", "RTCA", "NONE")
+
+PrevAutoHeteroCCAPlotCFP$layers[[1]]$mapping$shape <- NA
+ProvAutoHeteroCCAPlotCFP$layers[[1]]$mapping$shape <- NA
+CCAPlotCFP$layers[[1]]$mapping$shape <- NA
+ProvSpeciesScores$layers[[1]]$mapping$shape <- NA
+PrevSpeciesScores$layers[[1]]$mapping$shape <- NA
+PrevCCAPlotCFP$layers[[1]]$mapping$shape <- NA
+ProvSpeciesScores$layers[[1]]$mapping$shape <- NA
+
+Species<- rbind(FinalBestCCA.Cols$classes.ScaleSpecies,FinalPrevBestCCA.Cols$classes.ScaleSpecies)
+#Custom legend for species
+ProvlegendSpecies <-ggplot(Species, aes(CCA1, CCA2, col = phylum, size = ScaledAver)) +      # ggplot with legend
+  geom_point() + scale_color_manual(values =Phycols) + scale_size(name = "Scaled Average Abundance",
+                                                                  range = c(1,20))+ 
+  theme_bw()
+ProvlegendSpecies_alone <- get_legend(ProvlegendSpecies)
+
+#Custom legend for CFP CCA plots
+CFPlegendSpecies <-ggplot(CFPSpecies, aes(CCA1, CCA2, col = CFP, size = ScaledAver)) +      # ggplot with legend
+  geom_point() + scale_color_manual(values =CFPCOLS) + scale_size(name = "Scaled Average Abundance",
+                                                                  range = c(1,20))+ 
+  theme_bw()
+CFPlegendSpecies_alone <- get_legend(CFPlegendSpecies)
+
+
+
+provcols <- c("green", "orange", "darkblue")
+names(provcols) <- c("outer_forearc", "arc", "forearc")
+#Custom legend for species
+ProvlegendSites <-ggplot() +      # ggplot with legend
+  geom_point(data = FinalBestCCA.Cols$Sites.ScalingSpecies3$Cols, mapping = aes(x = CCA1, y = CCA2, col = province), size = 6, shape=18) + scale_color_manual(values =provcols) +  
+  theme_bw()
+ProvlegendSites_alone <- get_legend(ProvlegendSites)
+#Saving Plot
+Legends <- ggdraw(plot_grid(plot_grid(ProvlegendSpecies_alone, ProvlegendSites_alone)))
+
+ggsave("output_data/CFPlegend.pdf", plot = CFPlegendSpecies_alone, height = 10, width = 10)
+```
+
+
+###############################################################
+# Testing geochemical ratios to see if we get improved models #
+###############################################################
+## Ratios to be used are the following:
+# SO4/Cl  Cl/DIC   SO4/DIC Ni/Fe
+# Cu/Fe   CO2/CH4  Co/Fe   CH4/H2
+# Ca/Mg   Ca/K+Na  CO2/H2  K+Na/Mg
+# Fe/Al
+
+Create the columns for each ratio
+```{r}
+ProvgeomForest <- geochem.int$ximp  %>% .[geochem.int$ximp$sample %in% rownames(ProvBinAbun),] %>% remove_rownames %>% column_to_rownames(., var = "sample")
+ProvgeomForestRatios <- ProvgeomForest
+ProvgeomForestRatios$so4.cl <- ProvgeomForest$so4/ProvgeomForest$cl
+ProvgeomForestRatios$cl.dic <- ProvgeomForestRatios$cl/ProvgeomForestRatios$dic
+ProvgeomForestRatios$so4.dic <- ProvgeomForestRatios$so4/ProvgeomForestRatios$dic
+ProvgeomForestRatios$ni_ac.fe_ac <- ProvgeomForestRatios$ni_ac/ProvgeomForestRatios$fe_ac
+ProvgeomForestRatios$ni_s.fe_s <- ProvgeomForestRatios$ni_s/ProvgeomForestRatios$fe_s
+ProvgeomForestRatios$co2.ch4 <- ProvgeomForestRatios$co2/ProvgeomForestRatios$ch4
+ProvgeomForestRatios$co_ac.fe_ac <- ProvgeomForestRatios$co_ac/ProvgeomForestRatios$fe_ac
+ProvgeomForestRatios$ch4.h2 <- ProvgeomForestRatios$ch4/ProvgeomForestRatios$h2
+ProvgeomForestRatios$ca.mg <- ProvgeomForestRatios$ca/ProvgeomForestRatios$mg
+ProvgeomForestRatios$ca.k_na <- ProvgeomForestRatios$ca/(ProvgeomForestRatios$k+ProvgeomForestRatios$na)
+ProvgeomForestRatios$k_na.mg <- (ProvgeomForestRatios$k+ProvgeomForestRatios$na)/ProvgeomForestRatios$mg
+ProvgeomForestRatios$fe_ac.al_ac <- ProvgeomForestRatios$fe_ac/ProvgeomForestRatios$al_ac
+ProvgeomForestRatios$fe_s.al_s <- ProvgeomForestRatios$fe_s/ProvgeomForestRatios$al_s
+```
+
+
+Convert Inf values to zero
+```{r}
+ProvgeomForestRatios <- ProvgeomForestRatios %>% mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x))
+```
+
+Check for co-occurance between ratios
+```{r}
+pairs.panels(ProvgeomForestRatios[,77:89], scale=T)
+```
+so4.cl is highly correlated with ca.k_na
+
+
+```{r}
+raito_mod_prov <- cca(ProvBinAbun.hell~ so4.dic + ni_ac.fe_ac + ni_s.fe_s + co2.ch4 + 
+              ch4.h2 + ca.k_na + k_na.mg + fe_ac.al_ac + fe_s.al_s, ProvgeomForestRatios)
+
+```
+
+
+Check the VIF
+```{r}
+vif.cca(raito_mod_prov)
+```
+
+ANOVA prem tests
+```{r}
+anova(raito_mod_prov, permutations = how(nperm = 9999))
+```
+
+```{r}
+anova(raito_mod_prov, permutations = how(nperm = 9999),by="margin")
+
+```
+
+Stepwise regression
+```{r}
+ordistep(raito_mod_prov)
+```
+
+
+Final model based on stepwise
+```{r}
+final_raito_mod_prov <- cca(formula = ProvBinAbun.hell ~ so4.dic + ni_s.fe_s + ca.k_na + fe_s.al_s, data = ProvgeomForestRatios)
+
+```
+
+
+```{r}
+summary(final_raito_mod_prov)
+
+```
+Only explains 24% of the variation. Its a good model, but not as good as our previous version
+
+```{r}
+plot(final_raito_mod_prov)
+```
+
+
+
+
+
+
+
+
+
+
+
+
